@@ -1,7 +1,5 @@
 import random
 import struct
-from types import prepare_class
-from typing import Optional
 
 
 class PacketHeader:
@@ -17,7 +15,7 @@ class PacketHeader:
         response_code: int = 0,
         question_count: int = 0,
         answer_count: int = 0,
-        nameserver_records_count: int = 0,
+        name_server_records_count: int = 0,
         additional_records_count: int = 0,
     ):
         self.id = id
@@ -30,7 +28,7 @@ class PacketHeader:
         self.response_code = response_code
         self.question_count = question_count
         self.answer_count = answer_count
-        self.authoritative_records_count = nameserver_records_count
+        self.authoritative_records_count = name_server_records_count
         self.additional_records_count = additional_records_count
         self.z = 0
 
@@ -60,7 +58,7 @@ class PacketHeader:
             id=id,
             question_count=qcount,
             answer_count=acount,
-            nameserver_records_count=nscount,
+            name_server_records_count=nscount,
             additional_records_count=arcount,
         )
         h.__unpack_flag(flag)
@@ -133,7 +131,7 @@ class RecordType:
 class PacketQuestion:
     QCLASS = 0x0001
 
-    def __init__(self, name: str, mx: Optional[bool] = None, ns: Optional[bool] = None):
+    def __init__(self, name: str, mx: bool = False, ns: bool = False):
         self.name = name
         self.mx = mx
         self.ns = ns
@@ -185,66 +183,105 @@ class PacketAnwser:
         clazz: int,
         ttl: int,
         data_length: int,
-        data: bytes,
-        preference: int,
-        exchange: str,
+        raw: bytes = b"",
+        data: str = "",
+        preference: int = 0,
     ):
-        self.name: str = name
-        self.data_type: int = data_type
-        self.clazz: int = clazz
-        self.ttl: int = ttl
-        self.data_length: int = data_length
-        self.data: bytes = data
-        self.preference: int = preference
-        self.exchange: str = exchange
+        self.name = name
+        self.data_type = data_type
+        self.clazz = clazz
+        self.ttl = ttl
+        self.data_length = data_length
+        self.raw = raw
+        self.data = data
+        self.preference = preference
+
+    def is_supported_type(self) -> bool:
+        supported = [
+            RecordType.CNAME,
+            RecordType.A,
+            RecordType.MX,
+            RecordType.NS,
+        ]
+
+        return self.data_type in supported
+
+    def get_type_str(self) -> str:
+        match self.data_type:
+            case RecordType.CNAME:
+                return "CNAME"
+            case RecordType.NS:
+                return "NS"
+            case RecordType.A:
+                return "A"
+            case RecordType.MX:
+                return "MX"
+            case _:
+                return str(self.data_type)
+
+    def get_type_title_str(self) -> str:
+        match self.data_type:
+            case RecordType.CNAME:
+                return "alias"
+            case RecordType.NS:
+                return "name server"
+            case RecordType.A:
+                return "ip"
+            case RecordType.MX:
+                return "mail server"
+            case _:
+                return str(self.data_type)
 
     @classmethod
     def build_answer(
         cls, response: bytes, pointer: int, header: PacketHeader
-    ) -> "list[PacketAnwser] | None":
+    ) -> list["PacketAnwser"]:
         answers = []
-        for answer_idx in range(header.answer_count):
-            name, pointer = cls.__extract_name(response, pointer)
-            data_start = pointer + 10
-            meta = response[pointer:data_start]
-            data_type, clazz, ttl, data_length = struct.unpack("!HHIH", meta)
-
-            preference_start = data_start + data_length
-            rdata = response[data_start:preference_start]
-            # TODO: check the type and decode it
-
-            exchange_start = preference_start + 2
-            (preference,) = struct.unpack(
-                "!H", response[preference_start:exchange_start]
-            )
-
-            exchange, pointer = cls.__extract_name(response, exchange_start)
-
-            a = PacketAnwser(
-                name=name,
-                data_type=data_type,
-                clazz=clazz,
-                ttl=ttl,
-                data_length=data_length,
-                data=rdata,
-                preference=preference,
-                exchange=exchange,
-            )
-
-            print(
-                name,
-                data_type,
-                clazz,
-                ttl,
-                data_length,
-                rdata,
-                preference,
-                exchange,
-            )
-
-            answers.append(a)
+        for _ in range(header.answer_count):
+            answer, pointer = cls.__unpack_answer(response, pointer)
+            answers.append(answer)
 
         return answers
+
+    @classmethod
+    def __unpack_answer(
+        cls, response: bytes, pointer: int
+    ) -> tuple["PacketAnwser", int]:
+        name, pointer = cls.__extract_name(response, pointer)
+
+        data_start = pointer + 10
+        meta = response[pointer:data_start]
+        data_type, clazz, ttl, data_length = struct.unpack("!HHIH", meta)
+
+        data_end = data_start + data_length
+        a = PacketAnwser(
+            name=name,
+            data_type=data_type,
+            clazz=clazz,
+            ttl=ttl,
+            data_length=data_length,
+        )
+
+        a.__extract_data(response, data_start, data_end)
+
+        return a, data_end
+
+    def __extract_data(self, response: bytes, start: int, end: int):
+        self.raw = response[start:end]
+        match self.data_type:
+            case RecordType.CNAME:
+                self.data, _ = self.__extract_name(response, start)
+            case RecordType.NS:
+                self.data, _ = self.__extract_name(response, start)
+            case RecordType.A:
+                octets = []
+                for octet in self.raw:
+                    octets.append(str(octet))
+                self.data = ".".join(octets)
+            case RecordType.MX:
+                (preference,) = struct.unpack("!H", self.raw[0:2])
+                self.preference = preference
+                self.data, _ = self.__extract_name(response, start + 2)
 
     @classmethod
     def __extract_name(cls, response: bytes, start: int) -> tuple[str, int]:
@@ -283,7 +320,7 @@ class Packet:
         self,
         header: PacketHeader,
         question: PacketQuestion,
-        answers: Optional[list[PacketAnwser]] = None,
+        answers: list[PacketAnwser] = [],
     ):
         self.header = header
         self.question = question
@@ -292,11 +329,19 @@ class Packet:
     def pack(self) -> bytes:
         return b"".join([self.header.pack(), self.question.pack()])
 
+    def get_answers(self) -> list[PacketAnwser]:
+        out = []
+        for a in self.answers:
+            if a.is_supported_type():
+                out.append(a)
+
+        return out
+
     @staticmethod
     def build_request(
         name: str,
-        mx: Optional[bool] = None,
-        ns: Optional[bool] = None,
+        mx: bool = False,
+        ns: bool = False,
     ) -> "Packet":
         header = PacketHeader.build_request(1)
         question = PacketQuestion(name, mx, ns)
