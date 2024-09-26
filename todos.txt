@@ -1,0 +1,8 @@
+- tests
+- retry
+- timeout
+- output UX/logging results (formatting like in document)
+- authority and additional records
+- TC, truncated request
+- check recursive support (RA)
+- handle response code error
