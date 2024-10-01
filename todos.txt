@@ -1,6 +1,6 @@
 - tests
-- retry
-- timeout
+x retry
+x timeout
 - output UX/logging results (formatting like in document)
 - authority and additional records
 - TC, truncated request

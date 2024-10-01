@@ -1,4 +1,5 @@
 import socket
+import time
 
 from configuration import Configuration
 from packet import Packet, RecordType
@@ -16,17 +17,44 @@ class Transmitter:
         request = Packet.build_request(
             self.config.name, mx=self.config.mx, ns=self.config.ns
         )
-
-        print(f"sending query to {self.config.server} for hostname {self.config.name}")
         packet = request.pack()
-        sock.send(packet)
-        res = sock.recv(512)
+        
+        responseNotRecieved = True
+        retries = 0
+
+        while (responseNotRecieved):
+            try:
+                while (True):
+                    if retries == 0:
+                        print(f"sending query to {self.config.server} for hostname {self.config.name}")
+                    else:
+                        print(f"retry sending query to {self.config.server} for hostname {self.config.name}")
+                    startTime = time.time()
+                    sock.send(packet)
+                
+                    res = sock.recv(512)
+                    endTime = time.time()
+                    responseTime = endTime - startTime
+                    
+                    if not res: 
+                        continue
+                    else:
+                        print(f"Response received after {responseTime} seconds ({retries} retries)\n")
+                        responseNotRecieved = False
+                        break
+
+            except socket.timeout:
+                if retries >= self.config.retries:
+                    print(f"ERROR \t Maximum number of retries [{self.config.retries}] exceeded")
+                    return 0 
+                else:
+                    retries += 1
+                    continue
+
         print("unpacking response...")
         response = Packet.build_response(res, request)
 
-        print(
-            f"response code: {response.header.response_code}  answer count: {response.header.answer_count}"
-        )
+        print(f"response code: {response.header.response_code}  answer count: {response.header.answer_count}")
 
         for answer in response.get_answers():
             print("----------- answer -----------")
