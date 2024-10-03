@@ -108,6 +108,33 @@ class PacketHeader:
         self.z = z
         self.response_code = rcode
 
+    def validateHeaderErrors(cls) -> bool:
+        if cls.recursive_supported == False:
+            print(f"ERROR \t Not recursive: the name server does not support recursive queries")
+            return False
+        
+        match cls.response_code:
+            case 0:
+                return False
+            case 1:
+                print(f"ERROR \t Format error: the name server was unable to interpret the query")
+                return True 
+            case 2:
+                print(f"ERROR \t Server failure: the name server was unable to process this query due to a problem with the name server")
+                return True
+            case 3:
+                print(f"NOTFOUND \t Name error: the domain name referenced in the query does not exist")
+                return True
+            case 4:
+                print(f"ERROR \t Not implemented: the name server does not support the requested kind of query")
+                return True
+            case 5:
+                print(f"ERROR \t Refused: the name server refuses to perform the requested operation for policy reasons")
+                return True
+            case _:
+                print(f"ERROR \t Unexpected error: an unexpected error has occured")
+                return True
+
     @staticmethod
     def __to_bit(b: bool) -> int:
         return 1 if b else 0
@@ -175,7 +202,7 @@ class PacketQuestion:
         return PacketQuestion(name=name, mx=mx, ns=ns)
 
 
-class PacketAnwser:
+class PacketAnswer:
     def __init__(
         self,
         name: str,
@@ -206,47 +233,50 @@ class PacketAnwser:
 
         return self.data_type in supported
 
-    def get_type_str(self) -> str:
-        match self.data_type:
-            case RecordType.CNAME:
-                return "CNAME"
-            case RecordType.NS:
-                return "NS"
-            case RecordType.A:
-                return "A"
-            case RecordType.MX:
-                return "MX"
-            case _:
-                return str(self.data_type)
+    # def get_type_str(self) -> str:
+    #     match self.data_type:
+    #         case RecordType.CNAME:
+    #             return "CNAME"
+    #         case RecordType.NS:
+    #             return "NS"
+    #         case RecordType.A:
+    #             return "A"
+    #         case RecordType.MX:
+    #             return "MX"
+    #         case _:
+    #             return str(self.data_type)
 
-    def get_type_title_str(self) -> str:
-        match self.data_type:
-            case RecordType.CNAME:
-                return "alias"
-            case RecordType.NS:
-                return "name server"
-            case RecordType.A:
-                return "ip"
-            case RecordType.MX:
-                return "mail server"
-            case _:
-                return str(self.data_type)
+    # def get_type_title_str(self) -> str:
+    #     match self.data_type:
+    #         case RecordType.CNAME:
+    #             return "alias"
+    #         case RecordType.NS:
+    #             return "name server"
+    #         case RecordType.A:
+    #             return "ip"
+    #         case RecordType.MX:
+    #             return "mail server"
+    #         case _:
+    #             return str(self.data_type)
 
     @classmethod
     def build_answer(
-        cls, response: bytes, pointer: int, header: PacketHeader
-    ) -> list["PacketAnwser"]:
+        cls, response: bytes, pointer: int, count: int
+    ) -> tuple[list["PacketAnswer"], int]:
         answers = []
-        for _ in range(header.answer_count):
+        for _ in range(count):
             answer, pointer = cls.__unpack_answer(response, pointer)
             answers.append(answer)
+            if answer.clazz != 1:
+                print(f"ERROR \t Unexpected class: an unexpected class code value in the records was encountered")
+                exit(1)
 
-        return answers
+        return answers, pointer
 
     @classmethod
     def __unpack_answer(
         cls, response: bytes, pointer: int
-    ) -> tuple["PacketAnwser", int]:
+    ) -> tuple["PacketAnswer", int]:
         name, pointer = cls.__extract_name(response, pointer)
 
         data_start = pointer + 10
@@ -254,7 +284,7 @@ class PacketAnwser:
         data_type, clazz, ttl, data_length = struct.unpack("!HHIH", meta)
 
         data_end = data_start + data_length
-        a = PacketAnwser(
+        a = PacketAnswer(
             name=name,
             data_type=data_type,
             clazz=clazz,
@@ -320,21 +350,25 @@ class Packet:
         self,
         header: PacketHeader,
         question: PacketQuestion,
-        answers: list[PacketAnwser] = [],
+        answers: list[PacketAnswer] = [],
+        authoritative_records: list[PacketAnswer] = [],
+        additional_records: list[PacketAnswer] = [],
     ):
         self.header = header
         self.question = question
         self.answers = answers
+        self.authoritative_records = authoritative_records
+        self.additional_records = additional_records
 
     def pack(self) -> bytes:
         return b"".join([self.header.pack(), self.question.pack()])
 
-    def get_answers(self) -> list[PacketAnwser]:
+    def get_records(self, record_section: str) -> list[PacketAnswer]:
         out = []
-        for a in self.answers:
+        record_list : list[PacketAnswer] = getattr(self, record_section, [])
+        for a in record_list:
             if a.is_supported_type():
                 out.append(a)
-
         return out
 
     @staticmethod
@@ -352,6 +386,10 @@ class Packet:
         question_pointer = 12
         answer_pointer = question_pointer + request.question.get_packed_length()
         header = PacketHeader.build_response(raw[:question_pointer])
+        if PacketHeader.validateHeaderErrors(header):
+            return 0
         q = PacketQuestion.build_question(raw[question_pointer:answer_pointer])
-        answers = PacketAnwser.build_answer(raw, answer_pointer, header)
-        return Packet(header=header, question=q, answers=answers)
+        answers, next_pointer = PacketAnswer.build_answer(raw, answer_pointer, header.answer_count)
+        authoritative_records, next_pointer = PacketAnswer.build_answer(raw, next_pointer, header.authoritative_records_count)
+        additional_records, end_pointer = PacketAnswer.build_answer(raw, next_pointer, header.additional_records_count)
+        return Packet(header=header, question=q, answers=answers, authoritative_records=authoritative_records, additional_records=additional_records)
