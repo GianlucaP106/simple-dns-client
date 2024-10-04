@@ -1,5 +1,5 @@
-from configuration import Configuration
-from transmission import Transmitter
+from dns_client.configuration import Configuration
+from dns_client.transmission import Transmitter
 
 
 def main():

@@ -1,3 +1,6 @@
+.guides
 guides
 __pycache__
 .venv
+build
+dns_client.egg-info

@@ -1,8 +1,0 @@
-- tests
-x retry
-x timeout
-x output UX/logging results (formatting like in document)
-x authority and additional records
-x TC, truncated request
-x check recursive support (RA)
-x handle response code error

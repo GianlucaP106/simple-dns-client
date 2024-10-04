@@ -1,0 +1,15 @@
+[build-system]
+requires = ["setuptools", "setuptools-scm"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "dns_client"
+authors = [
+    { name = "Gianluca Piccirillo", email = "gianluca.piccirillo@mail.mcgill.ca" },
+    { name = "Nicholas Murphy", email = "nicholas.murphy2@mail.mcgill.ca" },
+]
+description = "Simple DNS client"
+version = "0.1.0"
+readme = "README.md"
+requires-python = ">=3.7"
+dependencies = []

@@ -1,8 +1,8 @@
 import socket
 import time
 
-from configuration import Configuration
-from packet import Packet, RecordType
+from dns_client.configuration import Configuration
+from dns_client.packet import Packet, RecordType
 
 
 class Transmitter:
