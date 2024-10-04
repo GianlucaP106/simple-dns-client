@@ -1,5 +1,6 @@
 import random
 import struct
+import enum
 
 
 class PacketHeader:
@@ -108,32 +109,31 @@ class PacketHeader:
         self.z = z
         self.response_code = rcode
 
-    def validateHeaderErrors(cls) -> bool:
-        if cls.recursive_supported == False:
-            print(f"ERROR \t Not recursive: the name server does not support recursive queries")
-            return False
-        
-        match cls.response_code:
-            case 0:
-                return False
-            case 1:
-                print(f"ERROR \t Format error: the name server was unable to interpret the query")
-                return True 
-            case 2:
-                print(f"ERROR \t Server failure: the name server was unable to process this query due to a problem with the name server")
-                return True
-            case 3:
-                print(f"NOTFOUND \t Name error: the domain name referenced in the query does not exist")
-                return True
-            case 4:
-                print(f"ERROR \t Not implemented: the name server does not support the requested kind of query")
-                return True
-            case 5:
-                print(f"ERROR \t Refused: the name server refuses to perform the requested operation for policy reasons")
-                return True
-            case _:
-                print(f"ERROR \t Unexpected error: an unexpected error has occured")
-                return True
+    def validateHeaderErrors(self) -> None:
+        if not self.recursive_supported:
+            print(
+                "ERROR \t Not recursive: the name server does not support recursive queries"
+            )
+            exit(1)
+
+        if self.response_code == 0:
+            return
+
+        errors = {
+            1: "ERROR \t Format error: the name server was unable to interpret the query",
+            2: "ERROR \t Server failure: the name server was unable to process this query due to a problem with the name server",
+            3: "NOTFOUND \t Name error: the domain name referenced in the query does not exist",
+            4: "ERROR \t Not implemented: the name server does not support the requested kind of query",
+            5: "ERROR \t Refused: the name server refuses to perform the requested operation for policy reasons",
+        }
+
+        err = errors.get(self.response_code)
+        msg = "ERROR \t Unexpected error: an unexpected error has occured"
+        if err:
+            msg = err
+
+        print(msg)
+        exit(1)
 
     @staticmethod
     def __to_bit(b: bool) -> int:
@@ -148,11 +148,33 @@ class PacketHeader:
         return random.randint(0, 65535)
 
 
-class RecordType:
-    A = 0x0001
-    NS = 0x0002
-    MX = 0x000F
+class RecordType(enum.Enum):
     CNAME = 0x0005
+    NS = 0x0002
+    A = 0x0001
+    MX = 0x000F
+
+    __to_str = {
+        CNAME: "CNAME",
+        NS: "NS",
+        A: "A",
+        MX: "MX",
+    }
+
+    @classmethod
+    def is_supported(cls, code: int) -> bool:
+        for c in cls:
+            if c.value == code:
+                return True
+
+        return False
+
+    def to_str(self) -> str:
+        s = self.__to_str.get(self.value)
+        if not s:
+            return ""
+
+        return s
 
 
 class PacketQuestion:
@@ -160,19 +182,16 @@ class PacketQuestion:
 
     def __init__(self, name: str, mx: bool = False, ns: bool = False):
         self.name = name
-        self.mx = mx
-        self.ns = ns
+        if mx:
+            self.qtype = RecordType.MX
+        elif ns:
+            self.qtype = RecordType.NS
+        else:
+            self.qtype = RecordType.A
 
     def pack(self) -> bytes:
         qname = self.__pack_host_name()
-        if self.mx:
-            qtype = RecordType.MX
-        elif self.ns:
-            qtype = RecordType.NS
-        else:
-            qtype = RecordType.A
-
-        packet = qname + struct.pack("!HH", qtype, self.QCLASS)
+        packet = qname + struct.pack("!HH", self.qtype.value, self.QCLASS)
         return packet
 
     def get_packed_length(self) -> int:
@@ -196,8 +215,8 @@ class PacketQuestion:
 
         end = question[-4:]
         qtype, _ = struct.unpack("HH", end)
-        mx = qtype == RecordType.MX
-        ns = qtype == RecordType.NS
+        mx = qtype == RecordType.MX.value
+        ns = qtype == RecordType.NS.value
 
         return PacketQuestion(name=name, mx=mx, ns=ns)
 
@@ -224,40 +243,10 @@ class PacketAnswer:
         self.preference = preference
 
     def is_supported_type(self) -> bool:
-        supported = [
-            RecordType.CNAME,
-            RecordType.A,
-            RecordType.MX,
-            RecordType.NS,
-        ]
+        return RecordType.is_supported(self.data_type)
 
-        return self.data_type in supported
-
-    # def get_type_str(self) -> str:
-    #     match self.data_type:
-    #         case RecordType.CNAME:
-    #             return "CNAME"
-    #         case RecordType.NS:
-    #             return "NS"
-    #         case RecordType.A:
-    #             return "A"
-    #         case RecordType.MX:
-    #             return "MX"
-    #         case _:
-    #             return str(self.data_type)
-
-    # def get_type_title_str(self) -> str:
-    #     match self.data_type:
-    #         case RecordType.CNAME:
-    #             return "alias"
-    #         case RecordType.NS:
-    #             return "name server"
-    #         case RecordType.A:
-    #             return "ip"
-    #         case RecordType.MX:
-    #             return "mail server"
-    #         case _:
-    #             return str(self.data_type)
+    def get_type_str(self) -> str:
+        return RecordType(self.data_type).to_str()
 
     @classmethod
     def build_answer(
@@ -268,7 +257,9 @@ class PacketAnswer:
             answer, pointer = cls.__unpack_answer(response, pointer)
             answers.append(answer)
             if answer.clazz != 1:
-                print(f"ERROR \t Unexpected class: an unexpected class code value in the records was encountered")
+                print(
+                    "ERROR \t Unexpected class: an unexpected class code value in the records was encountered"
+                )
                 exit(1)
 
         return answers, pointer
@@ -299,16 +290,16 @@ class PacketAnswer:
     def __extract_data(self, response: bytes, start: int, end: int):
         self.raw = response[start:end]
         match self.data_type:
-            case RecordType.CNAME:
+            case RecordType.CNAME.value:
                 self.data, _ = self.__extract_name(response, start)
-            case RecordType.NS:
+            case RecordType.NS.value:
                 self.data, _ = self.__extract_name(response, start)
-            case RecordType.A:
+            case RecordType.A.value:
                 octets = []
                 for octet in self.raw:
                     octets.append(str(octet))
                 self.data = ".".join(octets)
-            case RecordType.MX:
+            case RecordType.MX.value:
                 (preference,) = struct.unpack("!H", self.raw[0:2])
                 self.preference = preference
                 self.data, _ = self.__extract_name(response, start + 2)
@@ -317,6 +308,7 @@ class PacketAnswer:
     def __extract_name(cls, response: bytes, start: int) -> tuple[str, int]:
         labels = []
         out_pointer = start + 1
+        label_found = False
         while True:
             length = response[start]
             if length == 0:
@@ -324,7 +316,11 @@ class PacketAnswer:
 
             if cls.__is_label_pointer(length):
                 pointer = cls.__decode_pointer(length, response[start + 1])
-                out_pointer = start + 2
+
+                if not label_found:
+                    out_pointer = start + 2
+                    label_found = True
+
                 start = pointer
                 continue
 
@@ -365,7 +361,7 @@ class Packet:
 
     def get_records(self, record_section: str) -> list[PacketAnswer]:
         out = []
-        record_list : list[PacketAnswer] = getattr(self, record_section, [])
+        record_list: list[PacketAnswer] = getattr(self, record_section, [])
         for a in record_list:
             if a.is_supported_type():
                 out.append(a)
@@ -386,10 +382,24 @@ class Packet:
         question_pointer = 12
         answer_pointer = question_pointer + request.question.get_packed_length()
         header = PacketHeader.build_response(raw[:question_pointer])
-        if PacketHeader.validateHeaderErrors(header):
-            return 0
+        header.validateHeaderErrors()
+
         q = PacketQuestion.build_question(raw[question_pointer:answer_pointer])
-        answers, next_pointer = PacketAnswer.build_answer(raw, answer_pointer, header.answer_count)
-        authoritative_records, next_pointer = PacketAnswer.build_answer(raw, next_pointer, header.authoritative_records_count)
-        additional_records, end_pointer = PacketAnswer.build_answer(raw, next_pointer, header.additional_records_count)
-        return Packet(header=header, question=q, answers=answers, authoritative_records=authoritative_records, additional_records=additional_records)
+        answers, next_pointer = PacketAnswer.build_answer(
+            raw, answer_pointer, header.answer_count
+        )
+
+        authoritative_records, next_pointer = PacketAnswer.build_answer(
+            raw, next_pointer, header.authoritative_records_count
+        )
+
+        additional_records, _ = PacketAnswer.build_answer(
+            raw, next_pointer, header.additional_records_count
+        )
+        return Packet(
+            header=header,
+            question=q,
+            answers=answers,
+            authoritative_records=authoritative_records,
+            additional_records=additional_records,
+        )

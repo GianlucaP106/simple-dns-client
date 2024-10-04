@@ -2,7 +2,7 @@ import socket
 import time
 
 from configuration import Configuration
-from packet import Packet, RecordType, PacketAnswer
+from packet import Packet, RecordType
 
 
 class Transmitter:
@@ -13,75 +13,61 @@ class Transmitter:
         sock = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
         sock.connect((self.config.server, self.config.port))
         sock.settimeout(self.config.timeout)
-
         request = Packet.build_request(
             self.config.name, mx=self.config.mx, ns=self.config.ns
         )
         packet = request.pack()
-        
+
         retries = 0
 
         print(f"DnsClient sending request for {request.question.name}")
         print(f"Server: {self.config.server}")
-        if request.question.mx:
-            print(f"Request type: MX\n")
-        elif request.question.ns:
-            print(f"Request type: NS\n")
-        else:
-            print(f"Request type: A\n")
+        print("Request type: ", request.question.qtype.to_str())
 
         startTime = time.time()
-        while (True):
-            try:                
+        while True:
+            try:
                 sock.send(packet)
                 res = sock.recv(512)
-                if res: 
+                if res:
                     break
             except socket.timeout:
                 if retries >= self.config.retries:
-                    print(f"ERROR \t Maximum number of retries [{self.config.retries}] exceeded")
-                    return 0 
+                    print(
+                        f"ERROR \t Maximum number of retries [{self.config.retries}] exceeded"
+                    )
+                    return 0
                 retries += 1
 
         endTime = time.time()
         responseTime = endTime - startTime
-        print(f"Response received after {responseTime} seconds ({retries} retries)\n")  
+        print(f"Response received after {responseTime} seconds ({retries} retries)\n")
         response = Packet.build_response(res, request)
 
-        if response.header.answer_count != 0:
-            print(f"***Answer Section ({response.header.answer_count} records)***")
-            self.display_records(response, 'answers')
-
-        if response.header.additional_records_count != 0:
-            print(f"***Additional Section ({response.header.additional_records_count} records)***")
-            self.display_records(response, 'additional_records')
-        
-        if response.header.answer_count == 0 and response.header.additional_records_count == 0:
-            print(f"NOTFOUND")
+        self.display_records(response, "answers", "Answer Section")
+        self.display_records(response, "authoritative_records", "Authoritative Section")
+        self.display_records(response, "additional_records", "Additional Section")
 
     @classmethod
-    def display_records(cls, response: Packet, record_section: str):
-        if response.header.authoritative:
-            isAuth = 'auth'
-        else:
-            isAuth = 'nonauth'
+    def display_records(cls, response: Packet, record_section: str, title: str):
+        responses = response.get_records(record_section)
+        count = len(responses)
+        print(f"***{title} ({count} records)***")
+        if count == 0:
+            print("NOTFOUND")
+            return
 
-        for record in response.get_records(record_section):
-            if record.data_type == RecordType.MX:
-                print(f"{cls.get_type_str(record)} \t {record.data} \t {record.preference} \t {record.ttl} \t {isAuth}")
-            else:
-                print(f"{cls.get_type_str(record)} \t {record.data} \t {record.ttl} \t {isAuth}")
+        isAuth = "auth" if response.header.authoritative else "nonauth"
+        for record in responses:
+            data = [
+                record.get_type_str(),
+                str(record.data),
+                str(record.ttl),
+                isAuth,
+            ]
 
-    @staticmethod
-    def get_type_str(record: PacketAnswer) -> str:
-        match record.data_type:
-            case RecordType.CNAME:
-                return "CNAME"
-            case RecordType.NS:
-                return "NS"
-            case RecordType.A:
-                return "A"
-            case RecordType.MX:
-                return "MX"
-            case _:
-                return str(record.data_type)
+            if record.data_type == RecordType.MX.value:
+                data.insert(2, str(record.preference))
+
+            output = " \t ".join(data)
+            print(output)
