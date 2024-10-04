@@ -62,7 +62,7 @@ class PacketHeader:
             name_server_records_count=nscount,
             additional_records_count=arcount,
         )
-        h.__unpack_flag(flag)
+        h._unpack_flag(flag)
         return h
 
     def __pack_flag(self) -> int:
@@ -87,7 +87,7 @@ class PacketHeader:
 
         return flag
 
-    def __unpack_flag(self, flag: int) -> None:
+    def _unpack_flag(self, flag: int) -> None:
         def mask(position: int, m: int) -> int:
             return (flag >> position) & m
 
