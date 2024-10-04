@@ -2,6 +2,8 @@
 
 A simple DNS client implementation written in python. It is lightweight, simple and user friendly.
 
+![dns_client_demo](https://github.com/user-attachments/assets/2671a970-8d85-4500-980e-10cec4234187)
+
 ## Installation
 
 ```bash
