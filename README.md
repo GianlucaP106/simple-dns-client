@@ -1,6 +1,6 @@
 # A Simple DNS Client
 
-This is a simple DNS client implementation written in python. It is lightweight, simple and user friendly.
+A simple DNS client implementation written in python. It is lightweight, simple and user friendly.
 
 ## Installation
 
