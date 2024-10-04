@@ -40,19 +40,25 @@ class Transmitter:
                 retries += 1
 
         endTime = time.time()
-        responseTime = endTime - startTime
-        print(f"Response received after {responseTime} seconds ({retries} retries)\n")
+        response_time = endTime - startTime
+        response_time_str = "%.4f" % response_time
+        print(
+            f"Response received after {response_time_str} seconds ({retries} retries)\n"
+        )
+
         response = Packet.build_response(res, request)
 
         self.display_records(response, "answers", "Answer Section")
+        print()
         self.display_records(response, "authoritative_records", "Authoritative Section")
+        print()
         self.display_records(response, "additional_records", "Additional Section")
 
     @classmethod
     def display_records(cls, response: Packet, record_section: str, title: str):
         responses = response.get_records(record_section)
         count = len(responses)
-        print(f"***{title} ({count} records)***")
+        print(f"*** {title} ({count} records) ***")
         if count == 0:
             print("NOTFOUND")
             return
