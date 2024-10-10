@@ -4,7 +4,7 @@ A simple DNS client implementation written in python. It is lightweight, simple 
 
 ![dns_client_demo](https://github.com/user-attachments/assets/2671a970-8d85-4500-980e-10cec4234187)
 
-## Installation
+## Installation (optional)
 
 ```bash
 pip install git+https://github.com/GianlucaP106/simple-dns-client
